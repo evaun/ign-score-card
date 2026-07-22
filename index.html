@@ -369,8 +369,17 @@
       width: 100%;
       position: relative;
       background: linear-gradient(135deg, #1a1a2e, #16213e);
-      background-size: cover;
-      background-position: center;
+      overflow: hidden;
+    }
+
+    .card-hero > img {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
     }
 
     .card-hero-empty {
@@ -1006,14 +1015,12 @@
         cd.date.textContent = dt;
       });
 
-      // 更新封面 — 用 background-image，html2canvas 对 background-size:cover 支持好
+      // 更新封面 — 用 <img> 标签，避免 html2canvas 渲染 background-image 时产生黑线
       ['land','port'].forEach(k => {
         const hero = cards[k].hero;
         if (coverSrc) {
-          hero.style.backgroundImage = 'url(' + coverSrc + ')';
-          hero.innerHTML = '<div class="card-hero-gradient"></div>';
+          hero.innerHTML = '<img src="' + coverSrc + '" alt="cover"><div class="card-hero-gradient"></div>';
         } else {
-          hero.style.backgroundImage = 'none';
           hero.innerHTML = '<div class="card-hero-empty">上传封面图后预览</div><div class="card-hero-gradient"></div>';
         }
       });
@@ -1085,15 +1092,65 @@
     });
 
     // 导出 — 使用html2canvas
+    // 预加载封面图片，在 onclone 中用 <canvas> 替换 background-image，
+    // 避免 html2canvas 的 tile 渲染产生中间黑线
+    function loadImage(src) {
+      return new Promise(function(resolve, reject) {
+        var img = new Image();
+        img.onload = function() { resolve(img); };
+        img.onerror = reject;
+        img.src = src;
+      });
+    }
+
     async function exportCard(el, suffix) {
       const title = els.name.value || '游戏';
       const safe = title.replace(/[^\w\u4e00-\u9fa5]/g, '_').substring(0, 20);
       try {
+        // 预加载封面图
+        let coverImg = null;
+        if (coverSrc) {
+          coverImg = await loadImage(coverSrc);
+        }
+
         const canvas = await html2canvas(el, {
           scale: 2,
           backgroundColor: '#FFFFFF',
           useCORS: true,
-          allowTaint: true
+          allowTaint: true,
+          onclone: function(clonedDoc, clonedEl) {
+            if (!coverImg) return;
+            var heroes = clonedEl.querySelectorAll('.card-hero');
+            // 从原始 DOM 获取 hero 尺寸作为 fallback
+            var origHero = el.querySelector('.card-hero');
+            var fallbackW = origHero ? origHero.offsetWidth : 0;
+            var fallbackH = origHero ? origHero.offsetHeight : 0;
+            heroes.forEach(function(hero) {
+              var img = hero.querySelector('img');
+              if (!img) return;
+              var cw = hero.offsetWidth || fallbackW;
+              var ch = hero.offsetHeight || fallbackH;
+              if (!cw || !ch) return;
+              // 用 canvas 替换 img，手动 drawImage 模拟 cover
+              // （html2canvas 1.4.1 不支持 object-fit）
+              var cvs = clonedDoc.createElement('canvas');
+              cvs.width = cw;
+              cvs.height = ch;
+              var ctx = cvs.getContext('2d');
+              var iw = coverImg.naturalWidth, ih = coverImg.naturalHeight;
+              var s = Math.max(cw / iw, ch / ih);
+              var dw = iw * s, dh = ih * s;
+              var dx = (cw - dw) / 2, dy = (ch - dh) / 2;
+              ctx.drawImage(coverImg, 0, 0, iw, ih, dx, dy, dw, dh);
+              cvs.style.position = 'absolute';
+              cvs.style.top = '0';
+              cvs.style.left = '0';
+              cvs.style.width = cw + 'px';
+              cvs.style.height = ch + 'px';
+              // 替换 img 为 canvas
+              img.parentNode.replaceChild(cvs, img);
+            });
+          }
         });
         const a = document.createElement('a');
         a.download = 'IGN_' + safe + '_' + suffix + '_' + Date.now() + '.png';
