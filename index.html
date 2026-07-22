@@ -294,12 +294,20 @@
     .btn-export {
       background: var(--ign-red);
       color: white;
+      transition: all 0.2s;
     }
 
     .btn-export:hover {
       background: var(--ign-red-deep);
       transform: translateY(-1px);
       box-shadow: 0 4px 12px rgba(227,33,25,0.3);
+    }
+
+    .btn-export:disabled {
+      background: var(--gray-400);
+      cursor: wait;
+      transform: none;
+      box-shadow: none;
     }
 
     .btn-reset {
@@ -1093,26 +1101,78 @@
       refresh();
     });
 
-    // 导出 — 使用 html-to-image（基于 SVG foreignObject，无 tile/slice 分块，不会产生黑线）
-    async function exportCard(el, suffix) {
+    // 导出 — 使用 html-to-image
+    // 优化：先将超大 base64 封面图压缩为合理尺寸，减少 SVG 序列化体积，避免卡顿
+    function compressImage(dataUrl, maxW, maxH, quality) {
+      return new Promise(function(resolve) {
+        var img = new Image();
+        img.onload = function() {
+          var w = img.naturalWidth, h = img.naturalHeight;
+          // 如果已经足够小，不压缩
+          if (w <= maxW && h <= maxH) { resolve(dataUrl); return; }
+          var scale = Math.min(maxW / w, maxH / h);
+          var nw = Math.round(w * scale), nh = Math.round(h * scale);
+          var cvs = document.createElement('canvas');
+          cvs.width = nw; cvs.height = nh;
+          var ctx = cvs.getContext('2d');
+          ctx.drawImage(img, 0, 0, nw, nh);
+          resolve(cvs.toDataURL('image/jpeg', quality || 0.85));
+        };
+        img.src = dataUrl;
+      });
+    }
+
+    async function exportCard(el, suffix, btn) {
       const title = els.name.value || '游戏';
       const safe = title.replace(/[^\w\u4e00-\u9fa5]/g, '_').substring(0, 20);
+
+      // 禁用按钮，显示 loading
+      var btnLand = $('btnExpLand'), btnPort = $('btnExpPort');
+      var origTextL = btnLand.textContent, origTextP = btnPort.textContent;
+      btnLand.disabled = btnPort.disabled = true;
+      btn.textContent = '⏳ 生成中…';
+
+      // 让浏览器先渲染 loading 状态
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
       try {
+        // 临时压缩封面图（如果有），减少序列化时间
+        var heroImg = el.querySelector('.card-hero > img');
+        var origSrc = null;
+        if (heroImg && coverSrc) {
+          origSrc = heroImg.src;
+          var compressed = await compressImage(coverSrc, 1600, 1200, 0.85);
+          heroImg.src = compressed;
+        }
+
         const dataUrl = await htmlToImage.toPng(el, {
           pixelRatio: 2,
           backgroundColor: '#FFFFFF'
         });
+
+        // 恢复原图
+        if (heroImg && origSrc) {
+          heroImg.src = origSrc;
+        }
+
         const a = document.createElement('a');
         a.download = 'IGN_' + safe + '_' + suffix + '_' + Date.now() + '.png';
         a.href = dataUrl;
         a.click();
       } catch (err) {
+        // 恢复原图
+        if (heroImg && origSrc) heroImg.src = origSrc;
         alert('导出失败: ' + err.message);
+      } finally {
+        // 恢复按钮
+        btnLand.disabled = btnPort.disabled = false;
+        btnLand.textContent = origTextL;
+        btnPort.textContent = origTextP;
       }
     }
 
-    $('btnExpLand').addEventListener('click', () => exportCard($('cardLand'), '横版'));
-    $('btnExpPort').addEventListener('click', () => exportCard($('cardPort'), '竖版'));
+    $('btnExpLand').addEventListener('click', function() { exportCard($('cardLand'), '横版', this); });
+    $('btnExpPort').addEventListener('click', function() { exportCard($('cardPort'), '竖版', this); });
 
     // 初始化
     refresh();
