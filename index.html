@@ -1130,7 +1130,7 @@
       var btnLand = $('btnExpLand'), btnPort = $('btnExpPort');
       var origTextL = btnLand.textContent, origTextP = btnPort.textContent;
       btnLand.disabled = btnPort.disabled = true;
-      btn.textContent = '⏳ 生成中…';
+      btn.textContent = '⏳ AI正在做图…';
 
       // 让浏览器先渲染 loading 状态
       await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
