@@ -368,16 +368,16 @@
     .card-hero {
       width: 100%;
       position: relative;
-      background: linear-gradient(135deg, #1a1a2e, #16213e);
+      background: var(--white);
       overflow: hidden;
     }
 
     .card-hero > img {
       position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
+      top: -1px;
+      left: -1px;
+      width: calc(100% + 2px);
+      height: calc(100% + 2px);
       object-fit: cover;
       display: block;
     }
@@ -388,8 +388,9 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      color: #555;
+      color: #888;
       font-size: 13px;
+      background: linear-gradient(135deg, #1a1a2e, #16213e);
     }
 
     /* 封面底部：多段渐变，更有电影感 */
@@ -1121,7 +1122,6 @@
           onclone: function(clonedDoc, clonedEl) {
             if (!coverImg) return;
             var heroes = clonedEl.querySelectorAll('.card-hero');
-            // 从原始 DOM 获取 hero 尺寸作为 fallback
             var origHero = el.querySelector('.card-hero');
             var fallbackW = origHero ? origHero.offsetWidth : 0;
             var fallbackH = origHero ? origHero.offsetHeight : 0;
@@ -1132,22 +1132,23 @@
               var ch = hero.offsetHeight || fallbackH;
               if (!cw || !ch) return;
               // 用 canvas 替换 img，手动 drawImage 模拟 cover
-              // （html2canvas 1.4.1 不支持 object-fit）
+              // 多画 2px 边距覆盖 sub-pixel gap
               var cvs = clonedDoc.createElement('canvas');
-              cvs.width = cw;
-              cvs.height = ch;
+              var pad = 2;
+              cvs.width = cw + pad * 2;
+              cvs.height = ch + pad * 2;
               var ctx = cvs.getContext('2d');
               var iw = coverImg.naturalWidth, ih = coverImg.naturalHeight;
-              var s = Math.max(cw / iw, ch / ih);
+              var totalW = cw + pad * 2, totalH = ch + pad * 2;
+              var s = Math.max(totalW / iw, totalH / ih);
               var dw = iw * s, dh = ih * s;
-              var dx = (cw - dw) / 2, dy = (ch - dh) / 2;
+              var dx = (totalW - dw) / 2, dy = (totalH - dh) / 2;
               ctx.drawImage(coverImg, 0, 0, iw, ih, dx, dy, dw, dh);
               cvs.style.position = 'absolute';
-              cvs.style.top = '0';
-              cvs.style.left = '0';
-              cvs.style.width = cw + 'px';
-              cvs.style.height = ch + 'px';
-              // 替换 img 为 canvas
+              cvs.style.top = '-' + pad + 'px';
+              cvs.style.left = '-' + pad + 'px';
+              cvs.style.width = totalW + 'px';
+              cvs.style.height = totalH + 'px';
               img.parentNode.replaceChild(cvs, img);
             });
           }
