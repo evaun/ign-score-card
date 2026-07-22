@@ -1093,8 +1093,8 @@
     });
 
     // 导出 — 使用html2canvas
-    // 预加载封面图片，在 onclone 中用 <canvas> 替换 background-image，
-    // 避免 html2canvas 的 tile 渲染产生中间黑线
+    // 导出前将 <img> 替换为手动绘制的 <canvas>（在原始DOM上操作），
+    // 导出后恢复，彻底避免 html2canvas 对 img/background-image 的渲染黑线
     function loadImage(src) {
       return new Promise(function(resolve, reject) {
         var img = new Image();
@@ -1102,6 +1102,43 @@
         img.onerror = reject;
         img.src = src;
       });
+    }
+
+    // 将 hero 内的 img 替换为手动绘制 cover 效果的 canvas，返回还原函数
+    function replaceImgWithCanvas(hero, coverImg) {
+      var img = hero.querySelector('img');
+      if (!img || !coverImg) return null;
+      var cw = hero.offsetWidth;
+      var ch = hero.offsetHeight;
+      if (!cw || !ch) return null;
+
+      var cvs = document.createElement('canvas');
+      cvs.width = cw * 2;  // 2x 清晰度
+      cvs.height = ch * 2;
+      var ctx = cvs.getContext('2d');
+      var iw = coverImg.naturalWidth, ih = coverImg.naturalHeight;
+      var s = Math.max(cw / iw, ch / ih);
+      var dw = iw * s, dh = ih * s;
+      var dx = (cw - dw) / 2, dy = (ch - dh) / 2;
+      // 在 2x canvas 上绘制
+      ctx.drawImage(coverImg, 0, 0, iw, ih, dx * 2, dy * 2, dw * 2, dh * 2);
+
+      cvs.style.position = 'absolute';
+      cvs.style.top = '0';
+      cvs.style.left = '0';
+      cvs.style.width = cw + 'px';
+      cvs.style.height = ch + 'px';
+      cvs.className = 'cover-canvas-tmp';
+
+      // 隐藏原 img，插入 canvas
+      img.style.display = 'none';
+      hero.insertBefore(cvs, img);
+
+      // 返回还原函数
+      return function() {
+        hero.removeChild(cvs);
+        img.style.display = '';
+      };
     }
 
     async function exportCard(el, suffix) {
@@ -1114,50 +1151,33 @@
           coverImg = await loadImage(coverSrc);
         }
 
+        // 导出前：在原始 DOM 上把 img 替换为 canvas
+        var restoreFns = [];
+        if (coverImg) {
+          var hero = el.querySelector('.card-hero');
+          if (hero) {
+            var restore = replaceImgWithCanvas(hero, coverImg);
+            if (restore) restoreFns.push(restore);
+          }
+        }
+
         const canvas = await html2canvas(el, {
           scale: 2,
           backgroundColor: '#FFFFFF',
           useCORS: true,
-          allowTaint: true,
-          onclone: function(clonedDoc, clonedEl) {
-            if (!coverImg) return;
-            var heroes = clonedEl.querySelectorAll('.card-hero');
-            var origHero = el.querySelector('.card-hero');
-            var fallbackW = origHero ? origHero.offsetWidth : 0;
-            var fallbackH = origHero ? origHero.offsetHeight : 0;
-            heroes.forEach(function(hero) {
-              var img = hero.querySelector('img');
-              if (!img) return;
-              var cw = hero.offsetWidth || fallbackW;
-              var ch = hero.offsetHeight || fallbackH;
-              if (!cw || !ch) return;
-              // 用 canvas 替换 img，手动 drawImage 模拟 cover
-              // 多画 2px 边距覆盖 sub-pixel gap
-              var cvs = clonedDoc.createElement('canvas');
-              var pad = 2;
-              cvs.width = cw + pad * 2;
-              cvs.height = ch + pad * 2;
-              var ctx = cvs.getContext('2d');
-              var iw = coverImg.naturalWidth, ih = coverImg.naturalHeight;
-              var totalW = cw + pad * 2, totalH = ch + pad * 2;
-              var s = Math.max(totalW / iw, totalH / ih);
-              var dw = iw * s, dh = ih * s;
-              var dx = (totalW - dw) / 2, dy = (totalH - dh) / 2;
-              ctx.drawImage(coverImg, 0, 0, iw, ih, dx, dy, dw, dh);
-              cvs.style.position = 'absolute';
-              cvs.style.top = '-' + pad + 'px';
-              cvs.style.left = '-' + pad + 'px';
-              cvs.style.width = totalW + 'px';
-              cvs.style.height = totalH + 'px';
-              img.parentNode.replaceChild(cvs, img);
-            });
-          }
+          allowTaint: true
         });
+
+        // 导出后：恢复原始 DOM
+        restoreFns.forEach(function(fn) { fn(); });
+
         const a = document.createElement('a');
         a.download = 'IGN_' + safe + '_' + suffix + '_' + Date.now() + '.png';
         a.href = canvas.toDataURL('image/png');
         a.click();
       } catch (err) {
+        // 出错也要恢复
+        restoreFns.forEach(function(fn) { fn(); });
         alert('导出失败: ' + err.message);
       }
     }
