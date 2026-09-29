@@ -366,7 +366,7 @@
        ================================ */
     .card {
       background: var(--white);
-      font-family: 'Inter', 'Noto Sans SC', -apple-system, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Noto Sans SC', 'Helvetica Neue', sans-serif;
       position: relative;
       border-radius: 10px;
       overflow: hidden;
@@ -1152,9 +1152,11 @@
           heroImg.src = compressed;
         }
 
+        // 使用系统字体后，html-to-image 渲染度量和浏览器一致，无需字体补偿
         const dataUrl = await htmlToImage.toPng(el, {
           pixelRatio: 2,
-          backgroundColor: '#FFFFFF'
+          backgroundColor: '#FFFFFF',
+          fontEmbedCSS: ' '
         });
 
         // 恢复原图
